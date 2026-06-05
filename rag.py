@@ -425,6 +425,7 @@ context: {context} """
             self.textractor = Textractor(
                 paragraphs=True,
                 backend=os.environ.get("TEXTBACKEND", "available"),
+                safeopen=os.environ.get("SAFEOPEN", "True").lower() in ("true", "1"),
             )
 
         # Extract text

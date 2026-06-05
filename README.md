@@ -119,6 +119,7 @@ The RAG application has a number of environment variables that can be set to con
 | DATA        | Optional directory to index data from       | None                                |
 | PERSIST     | Optional directory to save index updates to | None                                |
 | TOPICSBATCH | Optional batch size for LLM topic queries   | None                                |
+| SAFEOPEN    | Enable Textractor safeopen mode             | True                                |
 
 In the application, these settings can be shown by typing `:settings`.
 
