@@ -1,5 +1,5 @@
 """
-DocMind — Intelligent Knowledge Retrieval & Generation System
+DocMind - Intelligent Knowledge Retrieval and Generation System
 
 Author : Umair Rahman Shaik
 GitHub : https://github.com/URS05
@@ -11,7 +11,7 @@ accurate, context-grounded answers over any custom document corpus.
 Core Modules:
     - AutoId          : Utility for detecting txtai-generated auto IDs (UUID/numeric)
     - GraphContext    : Builds semantic knowledge graph contexts for Graph RAG queries
-    - Application     : Primary RAG engine — manages LLM, embeddings, ingestion, and the
+    - Application     : Primary RAG engine that manages LLM, embeddings, ingestion, and the
                         Streamlit chat interface
 """
 
@@ -65,8 +65,8 @@ class AutoId:
             uid: The identifier to evaluate. May be a str, int, or UUID object.
 
         Returns:
-            True  — if uid is a UUID string or a numeric value
-            False — if uid is a user-assigned human-readable string key
+            True  - if uid is a UUID string or a numeric value
+            False - if uid is a user-assigned human-readable string key
         """
 
         # Check if this is a UUID
@@ -173,9 +173,9 @@ class GraphContext:
 
         Returns:
             tuple: (query, concepts, context) where
-                query    — The natural language sub-query (str or None)
-                concepts — Ordered list of concept strings for path traversal
-                context  — Always None at parse time; populated downstream
+                query    - The natural language sub-query (str or None)
+                concepts - Ordered list of concept strings for path traversal
+                context  - Always None at parse time; populated downstream
         """
 
         # Graph query prefix
@@ -215,7 +215,7 @@ class GraphContext:
               on the question text are used as path node anchors.
 
         The resolved node IDs are joined with directed relationship wildcards
-        (depth 1–4) and wrapped in a Cypher MATCH PATH statement.
+        (depth 1-4) and wrapped in a Cypher MATCH PATH statement.
 
         Args:
             question (str)       : Natural language sub-query (used when no concepts).
@@ -335,7 +335,7 @@ class GraphContext:
 
 class Application:
     """
-    DocMind — Core RAG Application Engine.
+    DocMind - Core RAG Application Engine.
 
     This class is the central controller for the DocMind system. It manages:
 
@@ -354,7 +354,7 @@ class Application:
         Initialise the DocMind RAG engine.
 
         Execution order:
-            1. Initialise the Textractor pipeline (lazy — set to None until first use)
+            1. Initialise the Textractor pipeline (lazy - set to None until first use)
             2. Load or instantiate the LLM backend
             3. Load or create the Embeddings vector index + knowledge graph
             4. Configure the RAG pipeline with the system persona and prompt template
@@ -375,7 +375,7 @@ class Application:
         # Number of document chunks retrieved per query and injected into the LLM prompt
         self.context = int(os.environ.get("CONTEXT", 10))
 
-        # Grounded RAG prompt template — constrains the LLM to answer strictly from
+        # Grounded RAG prompt template - constrains the LLM to answer strictly from
         # retrieved context, minimising hallucination and improving factual accuracy.
         template = """
 Answer the following question using only the context below. Only include information
@@ -638,26 +638,26 @@ Text:
 
         # Welcome message and base usage instructions
         instructions = (
-            "👋 Welcome to **DocMind** — your intelligent knowledge retrieval system.\n\n"
+            "Welcome to DocMind - your intelligent knowledge retrieval system.\n\n"
             f"Ask a question such as `{examples[0]}`\n\n"
-            f"{'⚠️ **The knowledge base is currently empty.** Add documents below to begin.' if not self.embeddings.count() else '✅ Knowledge base loaded and ready.'}\n\n"
-            "**📄 Add data to the knowledge base:**\n\n"
-            "- `# https://example.com/paper.pdf` — Index a web URL or document\n"
-            "- `# /path/to/your/file.pdf`         — Index a local file\n"
-            "- `# Any custom text or notes here!` — Index raw text directly"
+            f"{'The knowledge base is currently empty. Add documents below to begin.' if not self.embeddings.count() else 'Knowledge base loaded and ready.'}\n\n"
+            "**Add data to the knowledge base:**\n\n"
+            "- `# https://example.com/paper.pdf` - Index a web URL or document\n"
+            "- `# /path/to/your/file.pdf`         - Index a local file\n"
+            "- `# Any custom text or notes here!` - Index raw text directly"
         )
 
         # Graph instructions
         if "graph" in self.embeddings.config:
             instructions += (
-                "\n\nThis index also supports `📈 GraphRAG`. Examples are shown below.\n"
+                "\n\nThis index also supports GraphRAG. Examples are shown below.\n"
                 f"- `{examples[1]}`\n"
-                "  - Graph rag query, the `gq: ` prefix enables graph rag\n"
+                "  - Graph RAG query, the `gq: ` prefix enables graph RAG\n"
                 f"- `{examples[2]}`\n"
                 "  - Graph path query for a list of concepts separated by `->`\n"
                 "  - The graph path is analyzed and described by the LLM\n"
                 f"- `{examples[3]}`\n"
-                "  - Graph path with a graph rag query"
+                "  - Graph path with a graph RAG query"
             )
 
         return instructions
@@ -783,22 +783,22 @@ if __name__ == "__main__":
     # Disable HuggingFace tokenizer parallelism warnings in Streamlit's multi-threaded runtime
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-    # Configure the Streamlit page — DocMind branding
+    # Configure the Streamlit page - DocMind branding
     st.set_page_config(
-        page_title="DocMind — Intelligent Knowledge Retrieval",
-        page_icon="🧠",
+        page_title="DocMind - Intelligent Knowledge Retrieval",
+        page_icon="D",
         layout="centered",
         initial_sidebar_state="auto",
         menu_items={
             "About": (
-                "**DocMind** — Intelligent Knowledge Retrieval & Generation System\n\n"
+                "**DocMind** - Intelligent Knowledge Retrieval and Generation System\n\n"
                 "Built by **Umair Rahman Shaik**  \n"
                 "GitHub: [URS05](https://github.com/URS05)"
             )
         },
     )
-    st.title(os.environ.get("TITLE", "🧠 DocMind"))
-    st.caption("Intelligent Knowledge Retrieval & Generation · Built by Umair Rahman Shaik")
+    st.title(os.environ.get("TITLE", "DocMind"))
+    st.caption("Intelligent Knowledge Retrieval and Generation | Built by Umair Rahman Shaik")
 
     # Instantiate and launch the DocMind RAG application
     app = create()
