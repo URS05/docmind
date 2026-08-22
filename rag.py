@@ -1,5 +1,18 @@
 """
-Runs a RAG application backed by a txtai Embeddings database.
+DocMind — Intelligent Knowledge Retrieval & Generation System
+
+Author : Umair Rahman Shaik
+GitHub : https://github.com/URS05
+
+DocMind is an advanced Retrieval-Augmented Generation (RAG) system that
+combines dense vector search with large language model reasoning to deliver
+accurate, context-grounded answers over any custom document corpus.
+
+Core Modules:
+    - AutoId          : Utility for detecting txtai-generated auto IDs (UUID/numeric)
+    - GraphContext    : Builds semantic knowledge graph contexts for Graph RAG queries
+    - Application     : Primary RAG engine — manages LLM, embeddings, ingestion, and the
+                        Streamlit chat interface
 """
 
 import os
@@ -8,6 +21,11 @@ import re
 from glob import glob
 from io import BytesIO
 from uuid import UUID
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env if present
+load_dotenv()
 
 from PIL import Image
 from tqdm import tqdm
@@ -19,25 +37,36 @@ import streamlit as st
 from txtai import Embeddings, LLM, RAG
 from txtai.pipeline import Textractor
 
-# Build logger
+# Initialize module-level logger via Streamlit's logging interface
 logger = st.logger.get_logger(__name__)
 
 
 class AutoId:
     """
-    Helper methods to detect txtai auto ids
+    Utility class for detecting txtai-generated automatic identifiers.
+
+    txtai assigns either UUID v5 strings or monotonically incrementing
+    integers as auto IDs when documents are indexed without explicit IDs.
+    This class provides a single static method to identify such IDs so
+    that graph nodes can be labelled with human-readable topic names
+    instead of raw identifiers.
     """
 
     @staticmethod
     def valid(uid):
         """
-        Checks if uid is a valid auto id (UUID or numeric id).
+        Determine whether a given identifier is a txtai-generated auto ID.
+
+        An auto ID is defined as either:
+            - A UUID v5 string (assigned when autoid='uuid5' is configured)
+            - A plain integer or digit-only string (sequential numeric ID)
 
         Args:
-            uid: input id
+            uid: The identifier to evaluate. May be a str, int, or UUID object.
 
         Returns:
-            True if this is an autoid, False otherwise
+            True  — if uid is a UUID string or a numeric value
+            False — if uid is a user-assigned human-readable string key
         """
 
         # Check if this is a UUID
@@ -52,16 +81,29 @@ class AutoId:
 
 class GraphContext:
     """
-    Builds graph contexts for GraphRAG
+    Graph-augmented context builder for DocMind's Graph RAG pipeline.
+
+    This class intercepts user queries and determines whether they are
+    targeting the knowledge graph layer of the embeddings index. When a
+    graph query is detected, it executes a Cypher-based path traversal
+    over the semantic graph, assembles a rich contextual node set, renders
+    a visual graph diagram, and returns a structured context list for the LLM.
+
+    Supported query patterns:
+        - 'gq: <natural language>'         Graph RAG with query expansion
+        - 'concept_a -> concept_b'         Semantic path traversal
+        - 'concept_a -> concept_b gq: ...' Path traversal + targeted query
     """
 
     def __init__(self, embeddings, context):
         """
-        Creates a new GraphContext.
+        Initialise a new GraphContext for a given query session.
 
         Args:
-            embeddings: embeddings instance
-            context: number of records to use as context
+            embeddings (Embeddings): The txtai Embeddings instance that holds
+                                    the vector store and knowledge graph.
+            context    (int)       : Maximum number of graph nodes to include
+                                    in the assembled LLM context.
         """
 
         self.embeddings = embeddings
@@ -120,14 +162,20 @@ class GraphContext:
 
     def parse(self, question):
         """
-        Attempts to parse question as a graph query. This method will return either a query
-        or concepts if this is a graph query. Otherwise, both will be None.
+        Parse a user question to detect and extract graph query directives.
+
+        A query is classified as a graph query when it contains:
+            - Arrow notation ('->') indicating a concept path traversal
+            - The 'gq: ' prefix indicating a graph-augmented natural language query
 
         Args:
-            question: input question
+            question (str): Raw user input string from the chat interface.
 
         Returns:
-            query, concepts, context
+            tuple: (query, concepts, context) where
+                query    — The natural language sub-query (str or None)
+                concepts — Ordered list of concept strings for path traversal
+                context  — Always None at parse time; populated downstream
         """
 
         # Graph query prefix
@@ -158,18 +206,23 @@ class GraphContext:
 
     def path(self, question, concepts):
         """
-        Creates a graph path query with one of two strategies.
-          - If an array of concepts is provided, the best matching row is found for each graph node
-          - Otherwise, the top 3 nodes running an embeddings search for query are used
+        Construct a Cypher MATCH PATH query from the parsed graph intent.
 
-        Each node is then joined together in as a Cypher MATCH PATH query and returned.
+        Two resolution strategies are applied:
+            - Concept list provided: For each concept string, the single best-matching
+              embedding vector in the graph is located and used as a path node anchor.
+            - No concepts (query only): The top-3 results from an embedding search
+              on the question text are used as path node anchors.
+
+        The resolved node IDs are joined with directed relationship wildcards
+        (depth 1–4) and wrapped in a Cypher MATCH PATH statement.
 
         Args:
-            question: input question
-            concepts: input concepts
+            question (str)       : Natural language sub-query (used when no concepts).
+            concepts (list[str]) : Ordered list of concept strings for path anchoring.
 
         Returns:
-            MATCH PATH query
+            str: A Cypher MATCH PATH query string for execution on the graph backend.
         """
 
         # Find graph nodes
@@ -191,13 +244,18 @@ class GraphContext:
 
     def plot(self, graph):
         """
-        Plot graph as an image.
+        Render the traversed knowledge graph as a PNG image for display.
+
+        Uses NetworkX spring layout with fixed seed for reproducible positioning.
+        Nodes are coloured and labelled with their LLM-generated topic names.
+        Duplicate nodes (topics with cosine similarity >= 0.9) are merged before
+        plotting to reduce visual noise.
 
         Args:
-            graph: input graph
+            graph: A txtai Graph instance containing traversed nodes and edges.
 
         Returns:
-            Image
+            PIL.Image.Image: An in-memory PNG image of the rendered graph.
         """
 
         # Deduplicate and label graph
@@ -277,39 +335,68 @@ class GraphContext:
 
 class Application:
     """
-    RAG application
+    DocMind — Core RAG Application Engine.
+
+    This class is the central controller for the DocMind system. It manages:
+
+        - LLM initialisation and configuration (local or API-backed)
+        - Embeddings index creation, loading, and dynamic updates
+        - Document ingestion and text extraction pipeline (Textractor)
+        - LLM-driven topic labelling for knowledge graph nodes
+        - Prompt construction and RAG pipeline execution
+        - Streamlit conversational UI rendering and session state management
+
+    Author: Umair Rahman Shaik (https://github.com/URS05)
     """
 
     def __init__(self):
         """
-        Creates a new application.
+        Initialise the DocMind RAG engine.
+
+        Execution order:
+            1. Initialise the Textractor pipeline (lazy — set to None until first use)
+            2. Load or instantiate the LLM backend
+            3. Load or create the Embeddings vector index + knowledge graph
+            4. Configure the RAG pipeline with the system persona and prompt template
         """
 
-        # Textractor instance (lazy loaded)
+        # Textractor is lazily initialised on first document ingestion call
         self.textractor = None
 
-        # Load LLM
-        self.llm = LLM(os.environ.get("LLM", "Qwen/Qwen3-4B-Instruct-2507"))
+        # Initialise the LLM backend.
+        # Defaults to Qwen2.5-0.5B (lightweight, CPU-friendly) for rapid prototyping.
+        # Override by setting LLM= in your .env file to use any HuggingFace model,
+        # llama.cpp GGUF path, or API model string (e.g. 'gpt-4o', 'ollama/llama3').
+        self.llm = LLM(os.environ.get("LLM", "Qwen/Qwen2.5-0.5B-Instruct"))
 
         # Load embeddings
         self.embeddings = self.load()
 
-        # Context size
+        # Number of document chunks retrieved per query and injected into the LLM prompt
         self.context = int(os.environ.get("CONTEXT", 10))
 
-        # Define prompt template
+        # Grounded RAG prompt template — constrains the LLM to answer strictly from
+        # retrieved context, minimising hallucination and improving factual accuracy.
         template = """
 Answer the following question using only the context below. Only include information
-specifically discussed.
+specifically discussed. Do not use any prior knowledge outside the provided context.
 
 question: {question}
 context: {context} """
 
-        # Create RAG pipeline
+        # Assemble the full RAG pipeline:
+        #   - embeddings: supplies vector-retrieved or graph-retrieved context
+        #   - llm:        generates the final grounded answer
+        #   - system:     DocMind assistant persona injected as the system message
+        #   - template:   structured prompt that enforces context-only reasoning
         self.rag = RAG(
             self.embeddings,
             self.llm,
-            system="You are a friendly assistant. You answer questions from users.",
+            system=(
+                "You are DocMind, an intelligent knowledge assistant built by Umair Rahman Shaik. "
+                "You answer questions accurately and concisely, using only the retrieved context "
+                "provided to you. If the answer is not contained in the context, say so clearly."
+            ),
             template=template,
             context=self.context,
         )
@@ -327,8 +414,8 @@ context: {context} """
         # Raw data path
         data = os.environ.get("DATA")
 
-        # Embeddings database path
-        database = os.environ.get("EMBEDDINGS", "neuml/txtai-wikipedia-slim")
+        # Embeddings database path (defaults to empty index for instant startup; set EMBEDDINGS in .env for pre-built index)
+        database = os.environ.get("EMBEDDINGS", "")
 
         # Check for existing index
         if database:
@@ -526,10 +613,16 @@ Text:
 
     def instructions(self):
         """
-        Generates a welcome message with instructions.
+        Generate the initial welcome message displayed in the DocMind chat interface.
+
+        The welcome message includes:
+            - An introductory greeting from the DocMind assistant
+            - Example queries tailored to the loaded index
+            - Instructions for ingesting new documents into the knowledge base
+            - Graph RAG usage guide (if the embeddings index has a graph enabled)
 
         Returns:
-            instructions
+            str: Markdown-formatted welcome and instructions string.
         """
 
         # Example queries
@@ -543,13 +636,15 @@ Text:
                 "linux -> macos -> microsoft windows gq: Tell me about Linux",
             ]
 
-        # Base instructions
+        # Welcome message and base usage instructions
         instructions = (
+            "👋 Welcome to **DocMind** — your intelligent knowledge retrieval system.\n\n"
             f"Ask a question such as `{examples[0]}`\n\n"
-            f"{'**The index is currently empty**' if not self.embeddings.count() else ''}\n\n"
-            "`📄 Data` can be added to this index as follows.\n\n"
-            "- `# file path or URL`\n"
-            "- `# custom notes and text as a string here!`"
+            f"{'⚠️ **The knowledge base is currently empty.** Add documents below to begin.' if not self.embeddings.count() else '✅ Knowledge base loaded and ready.'}\n\n"
+            "**📄 Add data to the knowledge base:**\n\n"
+            "- `# https://example.com/paper.pdf` — Index a web URL or document\n"
+            "- `# /path/to/your/file.pdf`         — Index a local file\n"
+            "- `# Any custom text or notes here!` — Index raw text directly"
         )
 
         # Graph instructions
@@ -685,17 +780,26 @@ def create():
 
 
 if __name__ == "__main__":
+    # Disable HuggingFace tokenizer parallelism warnings in Streamlit's multi-threaded runtime
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+    # Configure the Streamlit page — DocMind branding
     st.set_page_config(
-        page_title="RAG with txtai",
-        page_icon="🚀",
+        page_title="DocMind — Intelligent Knowledge Retrieval",
+        page_icon="🧠",
         layout="centered",
         initial_sidebar_state="auto",
-        menu_items=None,
+        menu_items={
+            "About": (
+                "**DocMind** — Intelligent Knowledge Retrieval & Generation System\n\n"
+                "Built by **Umair Rahman Shaik**  \n"
+                "GitHub: [URS05](https://github.com/URS05)"
+            )
+        },
     )
-    st.title(os.environ.get("TITLE", "🚀 RAG with txtai"))
+    st.title(os.environ.get("TITLE", "🧠 DocMind"))
+    st.caption("Intelligent Knowledge Retrieval & Generation · Built by Umair Rahman Shaik")
 
-    # Create and run RAG application
+    # Instantiate and launch the DocMind RAG application
     app = create()
     app.run()
